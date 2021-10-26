@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>flask-mipmap-server</title>
+
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-giJF6kkoqNQ00vy+HMDP7azOuL0xtbfIcaT9wjKHr8RbDVddVHyTfAAsrekwKmP1" crossorigin="anonymous">
+	<script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+
+	<style type="text/css">
+		body {
+			-ms-overflow-style: none;
+			scrollbar-width: none;
+		}
+
+		body::-webkit-scrollbar {
+			display:none;
+		}
+
+		canvas {
+			background-color: black;
+			width: 100%;
+			height: 100%;
+		}
+	</style>
+</head>
+
+<body class="container-fluid">
+	<div class="row">
+		<!-- Mipmap Setting Pane -->
+		<div class="col-4 card">
+			<div class="card-body">
+				<legend>Image Upload</legend>
+				<form id="upload-hc">
+					<div class="mb-3">
+						<label for="uploadImage" class="form-label">Select image to upload</label>
+						<input type="file" id="uploadImage" name="file" class="form-control" accept="image">
+					</div>
+
+					<button type="submit" class="btn btn-primary" id="uploadButton">Upload</button>
+				</form>
+
+				<legend>Image List</legend>
+				<div class="mb-3">
+					<select id="imageList" class="form-control" size="5"></select>
+				</div>
+
+				<legend>Mipmap Settings</legend>
+				<div class="mb-3 row align-items-center">
+					<div class="col-auto">
+						<label for="num-mipmap" class="form-label">Number of mipmaps</label>
+					</div>
+					<div class="col-auto">
+						<input type="number" id="num-mipmap" class="form-control" value="3">
+					</div>
+				</div>
+
+			</div>
+		</div>
+
+		<!-- Canvas Pane -->
+		<div class="col-8 card">
+			<div class="card-body">
+				<canvas id="canvas" width="1280" height="720"></canvas>
+			</div>
+		</div>
+	</div>
+</body>
+
+<script type="text/javascript">
+	const canvas = $('#canvas');
+	const ctx = canvas[0].getContext("2d");
+
+	let imageSizeDict = {};
+
+	let moving = false;
+
+	let x = 0;
+	let y = 0;
+	let mx = 0;
+	let my = 0;
+	let scale = 1.0;
+
+	function onMouseDown(e) {
+		if (e.which === 1) {
+			moving = true;
+			mx = e.clientX;
+			my = e.clientY;
+		}
+	}
+
+	function onMouseUp(e) {
+		if (e.which === 1) {
+			moving = false;
+		}
+	}
+
+	function onMouseMove(e) {
+		if (moving) {
+			x += (e.clientX - mx) / canvas.width();
+			y += (e.clientY - my) / canvas.height();
+			mx = e.clientX;
+			my = e.clientY;
+			render();
+		}
+	}
+
+	function onWheel(e) {
+		scale_change = 1.0 - e.originalEvent.deltaY / 125 * 0.1;
+		scale *= scale_change;
+		if (scale < 1) {
+			scale = 1;
+			x = 0;
+			y = 0;
+		} else {
+			let offsetX = e.offsetX / canvas.width();
+			let offsetY = e.offsetY / canvas.height();
+			x -= offsetX;
+			y -= offsetY;
+			x *= scale_change;
+			y *= scale_change;
+			x += offsetX;
+			y += offsetY;
+		}
+		render();
+	}
+
+	function render() {
+		const filename = $('#imageList').val();
+
+		const canvas_scale = Math.min(
+			canvas[0].width / imageSizeDict[filename].width, 
+			canvas[0].height / imageSizeDict[filename].height);
+		const canvas_offset = {
+			x: (canvas[0].width - imageSizeDict[filename].width * canvas_scale) / 2,
+			y: (canvas[0].height - imageSizeDict[filename].height * canvas_scale) / 2,
+		}
+
+		let img = new Image();
+		img.src = 'getPatch?name=' + filename;
+		img.onload = function() {
+			ctx.clearRect(0, 0, canvas[0].width, canvas[0].height);
+			ctx.drawImage(img, 0, 0, img.width, img.height, 
+				x * canvas.width() + canvas_offset.x, y * canvas.height() + canvas_offset.y, 
+				img.width * canvas_scale * scale, img.height * canvas_scale * scale);
+		}
+	}
+
+	function uploadImage() {
+		const form = $('#upload-hc')[0]
+
+		$.post({
+			url: '/upload',
+			data: new FormData(form),
+			processData: false,
+			contentType: false
+		}).done(function() {
+			alert('File upload succeeded.');
+			updateFileList();
+		}).fail(function(e) {
+			alert('File upload failed. Check console.');
+			console.log(e);
+		});
+	}
+
+	function updateFileList() {
+		$.get({
+			url: 'getImageNames'
+		}).done(function(data, textStatus, jqXHR) {
+			$('#imageList').empty();
+			imageSizeDict = {};
+			data.forEach(function(img){
+				$('#imageList').append($('<option>').val(img['name']).text(img['name']));
+				imageSizeDict[img['name']] = img;
+			});
+		}).fail(function(e) {
+			console.log(e);
+		});
+	}
+
+	$(function() {
+		$('#canvas').on('mousedown', onMouseDown);
+		$('#canvas').on('mouseup', onMouseUp);
+		$('#canvas').on('mousemove', onMouseMove);
+		$('#canvas').on('wheel', onWheel);
+
+		$('#uploadButton').on('click', uploadImage);
+
+		$('#imageList').on('change', render);
+
+		updateFileList();
+	});
+</script>
+</html>
