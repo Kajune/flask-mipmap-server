@@ -1,9 +1,13 @@
 from flask import Flask, render_template, request, make_response, jsonify, send_file
 import os, glob
+import PIL
 from PIL import Image
+
+PIL.Image.MAX_IMAGE_PIXELS = 100000 * 100000
 
 upload_path = './static/img'
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * (2 ** 30)
 
 @app.route('/')
 def index():
