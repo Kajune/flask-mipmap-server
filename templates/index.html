@@ -50,7 +50,7 @@
 						<label for="num-mipmap" class="form-label">Number of mipmaps</label>
 					</div>
 					<div class="col-auto">
-						<input type="number" id="num-mipmap" class="form-control" value="3">
+						<input type="number" id="num-mipmap" class="form-control" value="4">
 					</div>
 				</div>
 
@@ -71,6 +71,7 @@
 	const ctx = canvas[0].getContext("2d");
 
 	let imageSizeDict = {};
+	let patchDict = {};
 
 	let moving = false;
 
@@ -124,6 +125,29 @@
 		render();
 	}
 
+	function getPatch(filename, level, scale, row, col, onload) {
+		if (!patchDict[level]) {
+			patchDict[level] = {};
+		}
+		if (!patchDict[level][scale]) {
+			patchDict[level][scale] = {};
+		}
+		if (!patchDict[level][scale][row]) {
+			patchDict[level][scale][row] = {};
+		}
+		if (!patchDict[level][scale][row][col]) {
+			let patch = new Image();
+			patch.src = 'getPatch?name=' + filename + '&level=' + level 
+					+ '&scale=' + scale + '&row=' + row + '&col=' + col;
+			patch.onload = function() {
+				patchDict[level][scale][row][col] = patch;
+				onload(patchDict[level][scale][row][col]);
+			}
+		} else {
+			onload(patchDict[level][scale][row][col]);
+		}
+	}
+
 	function render() {
 		const filename = $('#imageList').val();
 
@@ -135,22 +159,52 @@
 			y: (canvas[0].height - imageSizeDict[filename].height * canvas_scale) / 2,
 		}
 
-		let img = new Image();
-		img.src = 'getPatch?name=' + filename;
-		img.onload = function() {
-			ctx.clearRect(0, 0, canvas[0].width, canvas[0].height);
-			ctx.drawImage(img, 0, 0, img.width, img.height, 
-				x * canvas.width() + canvas_offset.x, y * canvas.height() + canvas_offset.y, 
-				img.width * canvas_scale * scale, img.height * canvas_scale * scale);
+		const level = $('#num-mipmap').val();
+		let patch_scale = Math.round(scale);
+		if (patch_scale > level) {
+			patch_scale = level;
+		}
+		const num_div = 2 ** (patch_scale - 1);
+
+		ctx.clearRect(0, 0, canvas[0].width, canvas[0].height);
+		for (let row = 0; row < num_div; row++) {
+			for (let col = 0; col < num_div; col++) {
+				const patch_size = {
+					width: imageSizeDict[filename].width / num_div * canvas_scale * scale,
+					height: imageSizeDict[filename].height / num_div * canvas_scale * scale,
+				}
+
+				const left = x * canvas.width() + canvas_offset.x + col * patch_size.width;
+				const top = y * canvas.height() + canvas_offset.y + row * patch_size.height;
+				const right = x * canvas.width() + canvas_offset.x + (col + 1) * patch_size.width;
+				const bottom = y * canvas.height() + canvas_offset.y + (row + 1) * patch_size.height;
+
+				if (canvas.width <= left || canvas.height <= top || right <= 0 || bottom <= 0) {
+					continue;
+				}
+
+				ctx.fillStyle = 'gray';
+				ctx.fillRect(left, top, patch_size.width, patch_size.height);
+
+				ctx.fillStyle = "black";
+				ctx.font = "30px";
+				ctx.textAlign = "middle";
+				ctx.textBaseline = "top";
+
+				ctx.fillText("Loading", left + patch_size.width / 2, top + patch_size.height / 2, 200);
+
+				getPatch(filename, level, patch_scale, row, col, function(patch) {
+					ctx.drawImage(patch, 0, 0, patch.width, patch.height, 
+						left, top, patch_size.width, patch_size.height);
+				});
+			}
 		}
 	}
 
 	function uploadImage() {
-		const form = $('#upload-hc')[0]
-
 		$.post({
 			url: '/upload',
-			data: new FormData(form),
+			data: new FormData($('#upload-hc')[0]),
 			processData: false,
 			contentType: false
 		}).done(function() {
@@ -177,6 +231,11 @@
 		});
 	}
 
+	function onChangeImage() {
+		patchDict = {};
+		render();
+	}
+
 	$(function() {
 		$('#canvas').on('mousedown', onMouseDown);
 		$('#canvas').on('mouseup', onMouseUp);
@@ -185,7 +244,7 @@
 
 		$('#uploadButton').on('click', uploadImage);
 
-		$('#imageList').on('change', render);
+		$('#imageList').on('change', onChangeImage);
 
 		updateFileList();
 	});
